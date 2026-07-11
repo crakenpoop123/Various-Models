@@ -59,7 +59,7 @@ max_pixel_corruption = 0.5 # Maximum intensity of corruption (original pixel val
 # Note: It has a different corruption value for each x, y, red, green, and blue, value of an image. 
 # Also a pixel could have a corrupted red value but not green and blue
 
-linear_input = 8 * 8
+linear_input = 4 * 4
 hidden_size = 4 * 4
 
 hidden_depth = 2
@@ -68,25 +68,24 @@ class NeuralNetwork(nn.Module):
     def __init__(self):
         super(NeuralNetwork, self).__init__()
         # Convolutions
-        self.convs = [
-            nn.Conv2d(in_channels=3, out_channels=conv0_out, kernel_size=3, stride=1),
-            nn.Conv2d(in_channels=conv0_out, out_channels=conv1_out, kernel_size=3, stride=1),
-            nn.Conv2d(in_channels=conv1_out, out_channels=conv2_out, kernel_size=3, stride=1)
-        ]
+        self.convs = nn.ModuleList([
+            nn.Conv2d(in_channels=3, out_channels=conv0_out, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=conv0_out, out_channels=conv1_out, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=conv1_out, out_channels=conv2_out, kernel_size=3, stride=1, padding=1)
+        ])
         self.avgPool = nn.AvgPool2d(kernel_size=2, stride=2)
 
         self.inputL = nn.Linear(linear_input * conv2_out, hidden_size * conv2_out)
 
-        self.linear = []
+        self.linear = nn.ModuleList([])
         for i in range(hidden_depth):
             self.linear.append(nn.Linear(hidden_size * conv2_out, hidden_size * conv2_out))
         
         self.outputL = nn.Linear(hidden_size * conv2_out, embed_dim)
-        self.softmax = nn.Softmax()
 
         # Convolution block
     def conv_block(self, block, input):
-        input = self.convs[block]
+        input = self.convs[block](input)
         input = F.relu(input)
         input = self.avgPool(input)
         return input
@@ -97,7 +96,7 @@ class NeuralNetwork(nn.Module):
             x = self.conv_block(i, x)
         
         # Format the tensors
-        x.view(-1, 8 * 8 * conv2_out)
+        x = x.view(-1, linear_input * conv2_out)
 
         # Linear layers
         for i in range(len(self.linear)):
@@ -105,40 +104,64 @@ class NeuralNetwork(nn.Module):
         
         # Output layer
         x = self.outputL(x)
-        x = self.softmax(x)
 
         return x
 
 def train():
     print("Started training")
 
+    n_total_steps = len(train_loader)
+
+    model.zero_grad()
+
     for epoch in range(num_epochs):
         print("epoch: ", epoch + 1)
 
         for i, (images, labels) in enumerate(train_loader):
 
-            print(i)
+            # print(i)
 
             images = images.to(device)
             labels = labels.to(device)
 
             corrupted_images = corrupt(corruption, images)
 
-            corrupted_image = corrupt(corruption, images[0]).permute(1, 2, 0)
+            # corrupted_image = corrupt(corruption, images[0]).permute(1, 2, 0)
 
             # View the corrupted and non-corrupted images
 
-            curr_image = images[0].clone().detach().permute(1, 2, 0)
+            # curr_image = images[0].clone().detach().permute(1, 2, 0)
 
             # plt.subplot(2, 3, 1)
-            plt.figure(1)
-            plt.imshow(curr_image.cpu().numpy())
+            # plt.figure(1)
+            # plt.imshow(curr_image.cpu().numpy())
 
-            # plt.subplot(2, 3, 2)
-            plt.figure(2)
-            plt.imshow(corrupted_image.cpu().numpy()) 
+            # # plt.subplot(2, 3, 2)
+            # plt.figure(2)
+            # plt.imshow(corrupted_image.cpu().numpy()) 
 
-            plt.show()
+            # plt.show()
+
+            # Forward pass
+            normal_output = model(images)
+            corrupted_output = model(corrupted_images)
+            
+            # Loss
+            loss = criterion(normal_output, corrupted_output)
+
+            # Backward
+            loss.backward()
+
+            # Optimize
+
+            if i% 10 == 0: 
+                optimizer.step()
+                model.zero_grad()
+                print("Step: ", i, "/", n_total_steps, ". MSE: ", loss.item())
+
+
+
+
 
 def corrupt(intensity, input_image):
     images = input_image.clone().detach().to(device)
@@ -162,5 +185,8 @@ if __name__ == '__main__':
 
     # Optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    
+    # Criterion. This will be replaced later by a better method that lowers feature collaps
+    criterion = nn.CrossEntropyLoss().to(device)
 
     train()
