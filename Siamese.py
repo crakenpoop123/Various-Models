@@ -126,25 +126,10 @@ def train():
 
             corrupted_images = corrupt(corruption, images)
 
-            # corrupted_image = corrupt(corruption, images[0]).permute(1, 2, 0)
-
-            # View the corrupted and non-corrupted images
-
-            # curr_image = images[0].clone().detach().permute(1, 2, 0)
-
-            # plt.subplot(2, 3, 1)
-            # plt.figure(1)
-            # plt.imshow(curr_image.cpu().numpy())
-
-            # # plt.subplot(2, 3, 2)
-            # plt.figure(2)
-            # plt.imshow(corrupted_image.cpu().numpy()) 
-
-            # plt.show()
-
             # Forward pass
             normal_output = model(images)
-            corrupted_output = model(corrupted_images)
+            with torch.no_grad():
+                corrupted_output = model(corrupted_images)
             
             # Loss
             loss = criterion(normal_output, corrupted_output)
@@ -187,6 +172,24 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     
     # Criterion. This will be replaced later by a better method that lowers feature collaps
-    criterion = nn.CrossEntropyLoss().to(device)
+    criterion = nn.MSELoss().to(device)
 
     train()
+
+# This went in the train loop but is not currently used and was taking up many lines
+
+            # corrupted_image = corrupt(corruption, images[0]).permute(1, 2, 0)
+
+            # View the corrupted and non-corrupted images
+
+            # curr_image = images[0].clone().detach().permute(1, 2, 0)
+
+            # plt.subplot(2, 3, 1)
+            # plt.figure(1)
+            # plt.imshow(curr_image.cpu().numpy())
+
+            # # plt.subplot(2, 3, 2)
+            # plt.figure(2)
+            # plt.imshow(corrupted_image.cpu().numpy()) 
+
+            # plt.show()
