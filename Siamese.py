@@ -54,7 +54,10 @@ conv0_out = 16
 conv1_out = 48
 conv2_out = 128
 
-corruption = 1
+corruption = 0.3 # Proportion of pixels to be corrupted
+max_pixel_corruption = 0.5 # Maximum intensity of corruption (original pixel value * (1 + max_pixel_corruption)). 
+# Note: It has a different corruption value for each x, y, red, green, and blue, value of an image. 
+# Also a pixel could have a corrupted red value but not green and blue
 
 linear_input = 8 * 8
 hidden_size = 4 * 4
@@ -119,9 +122,9 @@ def train():
             images = images.to(device)
             labels = labels.to(device)
 
+            corrupted_images = corrupt(corruption, images)
 
-            corrupted_images = corrupt(corruption, images[0])
-            corrupted_images = corrupted_images.permute(1, 2, 0)
+            corrupted_image = corrupt(corruption, images[0]).permute(1, 2, 0)
 
             # View the corrupted and non-corrupted images
 
@@ -133,23 +136,24 @@ def train():
 
             # plt.subplot(2, 3, 2)
             plt.figure(2)
-            plt.imshow(corrupted_images.cpu().numpy()) 
+            plt.imshow(corrupted_image.cpu().numpy()) 
 
             plt.show()
 
 def corrupt(intensity, input_image):
-    image = input_image.clone().detach()
-    for r, x in enumerate(image):
-        for g, y in enumerate(x):
-            for b, z in enumerate(y):
-                # print(image.dtype)
-                if random.random() < intensity:
-                    # print("r: ", r, "g: ", g, "b: ", b)
-                    image[r, g, b] *= ((random.random()) + 0.5) / 1.5
-                    
-                    # image[r, g, b] = torch.Tensor([0, 0, 0])
+    images = input_image.clone().detach().to(device)
     
-    return image
+    # Randomize values for corruption
+    rand_vals = torch.rand(images.shape, device=device) * max_pixel_corruption * 2 + 1 - 1 * max_pixel_corruption
+
+    # Decide which values should be corrupted
+    rand_vals_mask = torch.rand(images.shape, device=device) < intensity
+
+    # Edit the image
+    images[rand_vals_mask] *= rand_vals[rand_vals_mask]
+    images /= (max_pixel_corruption + 1)
+
+    return images
 
 
 if __name__ == '__main__':
