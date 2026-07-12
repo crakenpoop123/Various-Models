@@ -10,10 +10,10 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 input_size = 32 * 32
 batch_size = 1000
-embed_dim = 256
-num_epochs = 25
+embed_dim = 16
+num_epochs = 15
 learning_rate = 0.01
-gradient_accumulator = 10
+gradient_accumulator = 20
 
 # CIFAR10 dataset
 
@@ -53,6 +53,7 @@ MSE_arr = []
 step_diff_arr = []
 MSE_diff_arr = []
 
+saved_dot_avg = []
 
 # Corruption variables
 
@@ -147,8 +148,8 @@ def train():
 
                 # Forward pass
                 normal_output = F.normalize(model(images), dim=1)
-                with torch.no_grad():
-                    corrupted_output = F.normalize(model(corrupted_images), dim=1)
+                # with torch.no_grad():
+                corrupted_output = F.normalize(model(corrupted_images), dim=1)
                 
 
                 # print(normal_output.size())
@@ -158,6 +159,9 @@ def train():
                 # print(dot_pairwise.size())
 
                 dot_avg_pairwise = dot_pairwise.mean(dim=0).to(device)
+
+                if i == 0:
+                    saved_dot_avg.append(dot_avg_pairwise.clone().detach().cpu().numpy())
 
                 # print(dot_avg_pairwise.size())
                 # print(dot_avg_pairwise)
@@ -170,8 +174,8 @@ def train():
 
                 # Forward pass
                 normal_output = F.normalize(model(images), dim=1)
-                with torch.no_grad():
-                    corrupted_output = F.normalize(model(corrupted_images), dim=1)
+                # with torch.no_grad():
+                corrupted_output = F.normalize(model(corrupted_images), dim=1)
                 
 
                 # print(normal_output.size())
@@ -209,7 +213,11 @@ def train():
 
                 step_diff_arr.append(step - 1)
                 MSE_diff_arr.append(loss.item())
-                
+    
+    for i in range(len(saved_dot_avg)):
+        plt.subplot(3, 5, i + 1)
+        plt.imshow(saved_dot_avg[i])
+    plt.show()
 
                 
 
