@@ -13,7 +13,7 @@ batch_size = 1000
 embed_dim = 16
 num_epochs = 15
 learning_rate = 0.01
-gradient_accumulator = 2
+gradient_accumulator = 4
 
 # CIFAR10 dataset
 
@@ -160,7 +160,7 @@ def train():
 
                 dot_avg_pairwise = dot_pairwise.mean(dim=0).to(device)
 
-                if i == 0:
+                if i == 0 or i == 1:
                     saved_dot_avg.append(dot_avg_pairwise.clone().detach().cpu().numpy())
 
                 # print(dot_avg_pairwise.size())
