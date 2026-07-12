@@ -11,9 +11,9 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 input_size = 32 * 32
 batch_size = 1000
 embed_dim = 256
-num_epochs = 5
+num_epochs = 25
 learning_rate = 0.01
-
+gradient_accumulator = 10
 
 # CIFAR10 dataset
 
@@ -45,23 +45,31 @@ test_loader = torch.utils.data.DataLoader(
     shuffle = True    
 )
 
-view = iter(test_loader)
-view_data, view_targets = next(view)
+# Used for graphing the model's performance
 
-# Neural Network init variables
+step_arr = []
+MSE_arr = []
 
-conv0_out = 16
-conv1_out = 48
-conv2_out = 128
+step_diff_arr = []
+MSE_diff_arr = []
 
-corruption = 0.3 # Proportion of pixels to be corrupted
-max_pixel_corruption = 0.5 # Maximum intensity of corruption (original pixel value * (1 + max_pixel_corruption)). 
+
+# Corruption variables
+
+corruption = 0.2 # Proportion of pixels to be corrupted
+max_pixel_corruption = 0.3 # Maximum intensity of corruption (original pixel value * (1 + max_pixel_corruption)). 
 # Note: It has a different corruption value for each x, y, red, green, and blue, value of an image. 
 # Also a pixel could have a corrupted red value but not green and blue
 
+# Neural Network init variables
+
+conv0_out = 6
+conv1_out = 12
+conv2_out = 30
+
+
 linear_input = 4 * 4
 hidden_size = 4 * 4
-
 hidden_depth = 2
 
 class NeuralNetwork(nn.Module):
@@ -98,6 +106,8 @@ class NeuralNetwork(nn.Module):
         # Format the tensors
         x = x.view(-1, linear_input * conv2_out)
 
+        # print(x.size())
+
         # Linear layers
         for i in range(len(self.linear)):
             x = self.linear[i](x)
@@ -107,12 +117,16 @@ class NeuralNetwork(nn.Module):
 
         return x
 
+
 def train():
     print("Started training")
 
     n_total_steps = len(train_loader)
 
     model.zero_grad()
+
+    same_img_pairwise_example = torch.zeros(embed_dim, embed_dim).to(device).fill_diagonal_(1)
+    diff_img_pairwise_example = torch.zeros(embed_dim, embed_dim).to(device)
 
     for epoch in range(num_epochs):
         print("epoch: ", epoch + 1)
@@ -123,26 +137,81 @@ def train():
 
             images = images.to(device)
             labels = labels.to(device)
-
-            corrupted_images = corrupt(corruption, images)
-
-            # Forward pass
-            normal_output = model(images)
-            with torch.no_grad():
-                corrupted_output = model(corrupted_images)
             
-            # Loss
-            loss = criterion(normal_output, corrupted_output)
+            if i % gradient_accumulator == 0:
+                # Reset the training loop
+                prev = torch.Tensor(embed_dim, embed_dim)
+
+            if i % gradient_accumulator < gradient_accumulator / 2:
+                corrupted_images = corrupt(corruption, images)
+
+                # Forward pass
+                normal_output = F.normalize(model(images), dim=1)
+                with torch.no_grad():
+                    corrupted_output = F.normalize(model(corrupted_images), dim=1)
+                
+
+                # print(normal_output.size())
+                # print(corrupted_output.size())
+                dot_pairwise = torch.bmm(normal_output.unsqueeze(2), corrupted_output.unsqueeze(1)).to(device)
+
+                # print(dot_pairwise.size())
+
+                dot_avg_pairwise = dot_pairwise.mean(dim=0).to(device)
+
+                # print(dot_avg_pairwise.size())
+                # print(dot_avg_pairwise)
+
+                # Loss
+                loss = criterion(dot_avg_pairwise, same_img_pairwise_example) * 10000
+                prev_images = images
+            else:
+                corrupted_images = corrupt(corruption, prev_images)
+
+                # Forward pass
+                normal_output = F.normalize(model(images), dim=1)
+                with torch.no_grad():
+                    corrupted_output = F.normalize(model(corrupted_images), dim=1)
+                
+
+                # print(normal_output.size())
+                # print(corrupted_output.size())
+                dot_pairwise = torch.bmm(normal_output.unsqueeze(2), corrupted_output.unsqueeze(1)).to(device)
+
+                # print(dot_pairwise.size())
+
+                dot_avg_pairwise = dot_pairwise.mean(dim=0).to(device)
+
+                # print(dot_avg_pairwise.size())
+                # print(dot_avg_pairwise)
+
+                # Loss
+                loss = criterion(dot_avg_pairwise, diff_img_pairwise_example) * 10000
 
             # Backward
-            loss.backward()
+            (loss / gradient_accumulator).backward()
 
             # Optimize
+            if i % gradient_accumulator == 0: 
+                step = epoch * n_total_steps + i
 
-            if i% 10 == 0: 
                 optimizer.step()
                 model.zero_grad()
-                print("Step: ", i, "/", n_total_steps, ". MSE: ", loss.item())
+
+                print("Similarity: Step: ", i, "/", n_total_steps, "MSE: ", loss.item())
+
+                step_arr.append(step)
+                MSE_arr.append(loss.item())
+            elif i % gradient_accumulator == 1: 
+                step = epoch * n_total_steps + i
+
+                print("Difference: Step: ", i - 1, "/", n_total_steps, "MSE: ", loss.item())
+
+                step_diff_arr.append(step - 1)
+                MSE_diff_arr.append(loss.item())
+                
+
+                
 
 
 
@@ -175,6 +244,20 @@ if __name__ == '__main__':
     criterion = nn.MSELoss().to(device)
 
     train()
+
+    plt.figure(1)
+    plt.plot(step_arr, MSE_arr, color="black", marker="o", linestyle="--")
+    plt.xlabel("Step")
+    plt.ylabel("MSE")
+    plt.title("Model's similarity error(this one should be low)")
+
+    plt.figure(2)
+    plt.plot(step_diff_arr, MSE_diff_arr, color="black", marker="o", linestyle="--")
+    plt.xlabel("Step")
+    plt.ylabel("MSE")
+    plt.title("Model's difference error(this one should be high)")
+
+    plt.show()
 
 # This went in the train loop but is not currently used and was taking up many lines
 
