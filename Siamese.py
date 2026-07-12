@@ -13,7 +13,7 @@ batch_size = 1000
 embed_dim = 16
 num_epochs = 15
 learning_rate = 0.01
-gradient_accumulator = 20
+gradient_accumulator = 2
 
 # CIFAR10 dataset
 
