@@ -35,11 +35,11 @@ def get_imgs():
         if i >= num_imgs:
             return f"Finished after {num_imgs} images"
         
-        image = images.to(device)
+        image = image.to(device)
         corrupted_image = Siamese.corrupt(image)
 
-        images.append(image.permute(1, 2, 0))
-        corrupted_images.append(corrupted_image.permute(1, 2, 0))
+        images.append(image.squeeze().permute(1, 2, 0))
+        corrupted_images.append(corrupted_image.squeeze().permute(1, 2, 0))
 
     
     return "Finished due to lack of data"
@@ -53,12 +53,12 @@ if __name__ == '__main__':
     plt.title("Normal Images")
     for i in range(num_imgs):
         plt.subplot(2, 3, i + 1)
-        plt.imshow(images[i])
+        plt.imshow(images[i].cpu().numpy(), cmap="gray")
 
     plt.figure(2)
     plt.title("Corrupted Images")
     for i in range(num_imgs):
         plt.subplot(2, 3, i + 1)
-        plt.imshow(corrupted_images[i])
+        plt.imshow(corrupted_images[i].cpu().numpy(), cmap="gray")
     
     plt.show()

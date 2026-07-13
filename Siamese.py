@@ -4,6 +4,7 @@ import torchvision.transforms as transforms
 import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+import random
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -159,7 +160,15 @@ def train():
                 prev_images = images
                 prev_labels = labels
             else:
-                corrupted_images = corrupt(prev_images)
+                type = random.randint(1, 4)
+
+                # Randomly choose which images to corrupt
+                if type < 3:
+                    prev_images = corrupt(prev_images)
+                
+                if type == 1 or type == 3:
+                    images = corrupt(images)
+
 
                 # Forward pass
                 normal_output = F.normalize(model(images), dim=1)
@@ -232,7 +241,9 @@ def corrupt(input_image):
 
     # Edit the image
     images[rand_vals_mask] *= rand_vals[rand_vals_mask]
-    images /= (max_pixel_corruption + 1)
+
+    # Use a sigmoid function to squish the pixels down to the range (0.0, 1.0)
+    images[rand_vals_mask] = 1/(1+torch.exp(-4 * images[rand_vals_mask] + 2.5))
 
     return images
 
