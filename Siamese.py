@@ -9,7 +9,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 input_size = 32 * 32
 batch_size = 1000
-embed_dim = 16
+embed_dim = 128
 num_epochs = 25
 learning_rate = 0.005
 gradient_accumulator = 2
@@ -43,8 +43,8 @@ saved_dot_avg = []
 
 # Corruption variables
 
-corruption = 0.1 # Proportion of pixels to be corrupted
-max_pixel_corruption = 0.2 # Maximum intensity of corruption (original pixel value * (1 + max_pixel_corruption)). 
+corruption = 0.25 # Proportion of pixels to be corrupted
+max_pixel_corruption = 0.3 # Maximum intensity of corruption (original pixel value * (1 + max_pixel_corruption)). 
 # Note: It has a different corruption value for each x, y, red, green, and blue, value of an image. 
 # Also a pixel could have a corrupted red value but not green and blue
 
@@ -118,6 +118,7 @@ def train():
 
     same_img_pairwise_example = torch.zeros(embed_dim, embed_dim).to(device).fill_diagonal_(1)
     diff_img_pairwise_example = torch.zeros(embed_dim, embed_dim).to(device)
+    diff_img_same_label_pairwise_example = torch.zeros(embed_dim, embed_dim).to(device).fill_diagonal_(0.9)
 
     for epoch in range(num_epochs):
         print("epoch: ", epoch + 1)
@@ -156,6 +157,7 @@ def train():
                 # Loss
                 loss = criterion(dot_avg_pairwise, same_img_pairwise_example) * 10000
                 prev_images = images
+                prev_labels = labels
             else:
                 corrupted_images = corrupt(prev_images)
 
@@ -171,16 +173,25 @@ def train():
 
                 # print(dot_pairwise.size())
 
-                dot_avg_pairwise = dot_pairwise.mean(dim=0).to(device)
 
                 if i == gradient_accumulator/2:
+                    dot_avg_pairwise = dot_pairwise.mean(dim=0).to(device)
                     saved_dot_avg.append(dot_avg_pairwise.clone().detach().cpu().numpy())
 
                 # print(dot_avg_pairwise.size())
                 # print(dot_avg_pairwise)
 
                 # Loss
-                loss = criterion(dot_avg_pairwise, diff_img_pairwise_example) * 10000
+
+                # .unsqueeze(-1) adds a 1 dimension to the end
+                loss_mask = (labels == prev_labels).unsqueeze(-1).unsqueeze(-1)
+
+                # Now with loss_mask.size() = [1000, 1, 1] we can use that to get the dot matrices
+                # of size() [1000, 128, 128]
+                loss_example = torch.where(loss_mask, diff_img_same_label_pairwise_example, diff_img_pairwise_example)
+
+                # This can then be used for the dot and averaged to find the final value
+                loss = criterion(dot_pairwise, loss_example).mean(dim=0).to(device) * 1000
 
             # Backward
             (loss / gradient_accumulator).backward()
@@ -239,7 +250,6 @@ if __name__ == '__main__':
     train()
 
 
-
     # Save the model to a file
 
     PATH = "./Siamese.pth"
@@ -248,17 +258,17 @@ if __name__ == '__main__':
 
 
     plt.figure(1)
-    plt.title("Set A (same image)")
+    plt.title("Set A (same image) (Max Pooled for clarity)")
     print(len(saved_dot_avg))
     for i in range(int(len(saved_dot_avg) / 2)):
         plt.subplot(5, 5, i + 1)
-        plt.imshow(saved_dot_avg[i * 2], cmap="gray")
+        plt.imshow(F.max_pool2d(torch.from_numpy(saved_dot_avg[i * 2]).unsqueeze(0), kernel_size=2, stride=2).squeeze().numpy(), cmap="gray")
 
     plt.figure(2)
-    plt.title("Set B (different image)")
+    plt.title("Set B (different image) (Max Pooled for clarity)")
     for i in range(int(len(saved_dot_avg) / 2)):
         plt.subplot(5, 5, i + 1)
-        plt.imshow(saved_dot_avg[i * 2 + 1], cmap="gray")
+        plt.imshow(F.max_pool2d(torch.from_numpy(saved_dot_avg[i * 2 + 1]).unsqueeze(0), kernel_size=2, stride=2).squeeze().numpy(), cmap="gray")
 
 
     plt.figure(3)

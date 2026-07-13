@@ -12,11 +12,9 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 input_size = 32 * 32
 batch_size = 1000
-embed_dim = 16
-num_epochs = 10
+num_epochs = 8
 num_classes = 10
-learning_rate = 0.005
-gradient_accumulator = 2
+learning_rate = 0.01
 
 
 train_dataset = torchvision.datasets.CIFAR10(
@@ -68,21 +66,42 @@ for param in loaded_model.parameters():
     param.requires_grad = False
 
 
+# Variables used for the classifier model
+
+embed_dim = 128
+hidden_dim = 32
+hidden_depth = 2
+
 class Classifier(nn.Module):
     def __init__(self):
         super(Classifier, self).__init__()
 
-        self.l1 = nn.Linear(embed_dim, num_classes)
-    
+        self.LinIn = nn.Linear(embed_dim, hidden_dim)
+
+        self.hiddens = nn.ModuleList([])
+        for i in range(hidden_depth):
+            self.hiddens.append(nn.Linear(hidden_dim, hidden_dim))
+        
+        self.LinOut = nn.Linear(hidden_dim, num_classes)
+
     def forward(self, x):
 
         # Put it through the siamese embedder first
 
         x = loaded_model(x)
 
+
         # This will be what is trained to classify the images. The loaded_model is frozen
 
-        x = self.l1(x)
+        # Input layer
+        x = self.LinIn(x)
+
+        # Hidden Layers
+        for i in range(hidden_depth):
+            x = self.hiddens[i](x)
+
+        # Output layer
+        x = self.LinOut(x)
 
         return x
 
@@ -114,7 +133,10 @@ def train():
                 optimizer.step()
                 model.zero_grad()
 
+                accuracy = test()
+                
                 print(f"Step: {i}/{n_total_steps}. MSE: {loss:.4f}")
+                print(f"Step: {i}/{n_total_steps}. Accuracy: {accuracy * 100:.4f}")
                 
 
 def test():
@@ -132,7 +154,8 @@ def test():
             n_correct += (predict == labels).sum().item()
         
         accuracy = n_correct / n_total
-        print(f"Model labeled {n_total} images with an accuracy of {accuracy * 100:.3f}%")
+    
+    return accuracy
 
 
 
@@ -150,7 +173,11 @@ if __name__ == '__main__':
 
     train()
 
-    test()
+    accuracy = test()
+
+    n_total = len(test_loader.dataset)
+
+    print(f"Model labeled {n_total} images with an accuracy of {accuracy * 100:.3f}%")
 
     # for i, (images, labels) in enumerate(test_loader):
     #     if i != 0:
