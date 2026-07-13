@@ -3,7 +3,6 @@ import torchvision
 import torchvision.transforms as transforms
 import torch.nn as nn
 import torch.nn.functional as F
-import random
 import matplotlib.pyplot as plt
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -11,9 +10,9 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 input_size = 32 * 32
 batch_size = 1000
 embed_dim = 16
-num_epochs = 15
-learning_rate = 0.01
-gradient_accumulator = 4
+num_epochs = 25
+learning_rate = 0.005
+gradient_accumulator = 2
 
 # CIFAR10 dataset
 
@@ -24,23 +23,10 @@ train_dataset = torchvision.datasets.CIFAR10(
     download = True
 )
 
-test_dataset = torchvision.datasets.CIFAR10(
-    root = "./data",
-    train = False,
-    transform = transforms.ToTensor(),
-    download = True
-)
-
 # Data loader
 
 train_loader = torch.utils.data.DataLoader(
     dataset = train_dataset,
-    batch_size = batch_size,
-    shuffle = True    
-)
-
-test_loader = torch.utils.data.DataLoader(
-    dataset = test_dataset,
     batch_size = batch_size,
     shuffle = True    
 )
@@ -57,21 +43,21 @@ saved_dot_avg = []
 
 # Corruption variables
 
-corruption = 0.2 # Proportion of pixels to be corrupted
-max_pixel_corruption = 0.3 # Maximum intensity of corruption (original pixel value * (1 + max_pixel_corruption)). 
+corruption = 0.1 # Proportion of pixels to be corrupted
+max_pixel_corruption = 0.2 # Maximum intensity of corruption (original pixel value * (1 + max_pixel_corruption)). 
 # Note: It has a different corruption value for each x, y, red, green, and blue, value of an image. 
 # Also a pixel could have a corrupted red value but not green and blue
 
 # Neural Network init variables
 
-conv0_out = 6
-conv1_out = 12
-conv2_out = 30
+conv0_out = 9
+conv1_out = 27
+conv2_out = 81
 
 
 linear_input = 4 * 4
-hidden_size = 4 * 4
-hidden_depth = 2
+hidden_size = 6 * 6
+hidden_depth = 0
 
 class NeuralNetwork(nn.Module):
     def __init__(self):
@@ -90,7 +76,9 @@ class NeuralNetwork(nn.Module):
         for i in range(hidden_depth):
             self.linear.append(nn.Linear(hidden_size * conv2_out, hidden_size * conv2_out))
         
-        self.outputL = nn.Linear(hidden_size * conv2_out, embed_dim)
+        self.intermediary = nn.Linear(hidden_size * conv2_out, int(embed_dim / 2))
+
+        self.outputL = nn.Linear(int(embed_dim / 2), embed_dim)
 
         # Convolution block
     def conv_block(self, block, input):
@@ -109,12 +97,14 @@ class NeuralNetwork(nn.Module):
 
         # print(x.size())
 
+        x = self.inputL(x)
+
         # Linear layers
         for i in range(len(self.linear)):
             x = self.linear[i](x)
         
         # Output layer
-        x = self.outputL(x)
+        x = self.outputL(self.intermediary(x))
 
         return x
 
@@ -139,12 +129,9 @@ def train():
             images = images.to(device)
             labels = labels.to(device)
             
-            if i % gradient_accumulator == 0:
-                # Reset the training loop
-                prev = torch.Tensor(embed_dim, embed_dim)
 
             if i % gradient_accumulator < gradient_accumulator / 2:
-                corrupted_images = corrupt(corruption, images)
+                corrupted_images = corrupt(images)
 
                 # Forward pass
                 normal_output = F.normalize(model(images), dim=1)
@@ -160,7 +147,7 @@ def train():
 
                 dot_avg_pairwise = dot_pairwise.mean(dim=0).to(device)
 
-                if i == 0 or i == 1:
+                if i == 0:
                     saved_dot_avg.append(dot_avg_pairwise.clone().detach().cpu().numpy())
 
                 # print(dot_avg_pairwise.size())
@@ -170,7 +157,7 @@ def train():
                 loss = criterion(dot_avg_pairwise, same_img_pairwise_example) * 10000
                 prev_images = images
             else:
-                corrupted_images = corrupt(corruption, prev_images)
+                corrupted_images = corrupt(prev_images)
 
                 # Forward pass
                 normal_output = F.normalize(model(images), dim=1)
@@ -185,6 +172,9 @@ def train():
                 # print(dot_pairwise.size())
 
                 dot_avg_pairwise = dot_pairwise.mean(dim=0).to(device)
+
+                if i == gradient_accumulator/2:
+                    saved_dot_avg.append(dot_avg_pairwise.clone().detach().cpu().numpy())
 
                 # print(dot_avg_pairwise.size())
                 # print(dot_avg_pairwise)
@@ -196,7 +186,7 @@ def train():
             (loss / gradient_accumulator).backward()
 
             # Optimize
-            if i % gradient_accumulator == 0: 
+            if i % gradient_accumulator == int(gradient_accumulator/2 - 0.5): 
                 step = epoch * n_total_steps + i
 
                 optimizer.step()
@@ -206,33 +196,28 @@ def train():
 
                 step_arr.append(step)
                 MSE_arr.append(loss.item())
-            elif i % gradient_accumulator == 1: 
+            elif i % gradient_accumulator == gradient_accumulator - 1: 
                 step = epoch * n_total_steps + i
+
+                optimizer.step()
+                model.zero_grad()
 
                 print("Difference: Step: ", i - 1, "/", n_total_steps, "MSE: ", loss.item())
 
                 step_diff_arr.append(step - 1)
                 MSE_diff_arr.append(loss.item())
     
-    for i in range(len(saved_dot_avg)):
-        plt.subplot(3, 5, i + 1)
-        plt.imshow(saved_dot_avg[i])
-    plt.show()
-
                 
 
 
-
-
-
-def corrupt(intensity, input_image):
+def corrupt(input_image):
     images = input_image.clone().detach().to(device)
     
     # Randomize values for corruption
     rand_vals = torch.rand(images.shape, device=device) * max_pixel_corruption * 2 + 1 - 1 * max_pixel_corruption
 
     # Decide which values should be corrupted
-    rand_vals_mask = torch.rand(images.shape, device=device) < intensity
+    rand_vals_mask = torch.rand(images.shape, device=device) < corruption
 
     # Edit the image
     images[rand_vals_mask] *= rand_vals[rand_vals_mask]
@@ -248,24 +233,50 @@ if __name__ == '__main__':
     # Optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     
-    # Criterion. This will be replaced later by a better method that lowers feature collaps
+    # Criterion. Mostly isn't used, only for a small bit to align the criterion of a different metric
     criterion = nn.MSELoss().to(device)
 
     train()
 
+
+
+    # Save the model to a file
+
+    PATH = "./Siamese.pth"
+
+    torch.save(model, PATH)
+
+
     plt.figure(1)
+    plt.title("Set A (same image)")
+    print(len(saved_dot_avg))
+    for i in range(int(len(saved_dot_avg) / 2)):
+        plt.subplot(5, 5, i + 1)
+        plt.imshow(saved_dot_avg[i * 2], cmap="gray")
+
+    plt.figure(2)
+    plt.title("Set B (different image)")
+    for i in range(int(len(saved_dot_avg) / 2)):
+        plt.subplot(5, 5, i + 1)
+        plt.imshow(saved_dot_avg[i * 2 + 1], cmap="gray")
+
+
+    plt.figure(3)
     plt.plot(step_arr, MSE_arr, color="black", marker="o", linestyle="--")
     plt.xlabel("Step")
     plt.ylabel("MSE")
-    plt.title("Model's similarity error(this one should be low)")
+    plt.title("Model's similarity error(comparing corrupted versions of the same image)")
 
-    plt.figure(2)
+    plt.figure(4)
     plt.plot(step_diff_arr, MSE_diff_arr, color="black", marker="o", linestyle="--")
     plt.xlabel("Step")
     plt.ylabel("MSE")
-    plt.title("Model's difference error(this one should be high)")
+    plt.title("Model's difference error(Comparing different images)")
 
     plt.show()
+
+
+
 
 # This went in the train loop but is not currently used and was taking up many lines
 

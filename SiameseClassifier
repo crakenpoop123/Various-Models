@@ -1,0 +1,176 @@
+import torch
+import torchvision
+import torchvision.transforms as transforms
+import torch.nn as nn
+import torch.nn.functional as F
+import matplotlib.pyplot as plt
+import Siamese
+from Siamese import NeuralNetwork
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+input_size = 32 * 32
+batch_size = 1000
+embed_dim = 16
+num_epochs = 10
+num_classes = 10
+learning_rate = 0.005
+gradient_accumulator = 2
+
+
+train_dataset = torchvision.datasets.CIFAR10(
+    root = "./data",
+    train = True,
+    transform = transforms.ToTensor(),
+    download = True
+)
+
+test_dataset = torchvision.datasets.CIFAR10(
+    root = "./data",
+    train = False,
+    transform = transforms.ToTensor(),
+    download = True
+)
+
+# Data loader
+
+train_loader = torch.utils.data.DataLoader(
+    dataset = train_dataset,
+    batch_size = batch_size,
+    shuffle = True    
+)
+
+test_loader = torch.utils.data.DataLoader(
+    dataset = test_dataset,
+    batch_size = batch_size,
+    shuffle = True    
+)
+
+
+# Load the model
+
+PATH = "./Siamese.pth"
+
+loaded_model = torch.load(PATH, weights_only=False).to(device)
+
+loaded_model.eval()
+
+
+# This will be used to view the matrices
+
+saved_dot_avg = []
+
+
+# Freeze the model so that the only thing being chnaged are the learned classification layers
+
+for param in loaded_model.parameters():
+    param.requires_grad = False
+
+
+class Classifier(nn.Module):
+    def __init__(self):
+        super(Classifier, self).__init__()
+
+        self.l1 = nn.Linear(embed_dim, num_classes)
+    
+    def forward(self, x):
+
+        # Put it through the siamese embedder first
+
+        x = loaded_model(x)
+
+        # This will be what is trained to classify the images. The loaded_model is frozen
+
+        x = self.l1(x)
+
+        return x
+
+def train():
+    model.zero_grad()
+    n_total_steps = len(test_loader)
+
+    for epoch in range(num_epochs):
+        print("Epoch ", epoch)
+
+        for i, (images, labels) in enumerate(train_loader):
+            images = images.to(device)
+            labels = labels.to(device)
+
+            # Forward pass
+            outputs = model(images)
+            
+            # Loss
+
+            # print(labels.size())
+            # print(outputs.size())
+
+            loss = criterion(outputs, labels)
+            (loss / 5).backward()
+
+            # Optimize
+
+            if i % 5 == 0:
+                optimizer.step()
+                model.zero_grad()
+
+                print(f"Step: {i}/{n_total_steps}. MSE: {loss:.4f}")
+                
+
+def test():
+    with torch.no_grad():
+        n_total = len(test_loader.dataset)
+        n_correct = 0
+
+        for images, labels in test_loader:
+            images = images.to(device)
+            labels = labels.to(device)
+
+            output = model(images)
+
+            _, predict = torch.max(output, 1)
+            n_correct += (predict == labels).sum().item()
+        
+        accuracy = n_correct / n_total
+        print(f"Model labeled {n_total} images with an accuracy of {accuracy * 100:.3f}%")
+
+
+
+
+
+
+if __name__ == '__main__':
+
+    # Initiate the model
+    model = Classifier().to(device)
+
+    #Setup how it will be optimized
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    criterion = nn.CrossEntropyLoss().to(device)
+
+    train()
+
+    test()
+
+    # for i, (images, labels) in enumerate(test_loader):
+    #     if i != 0:
+    #         corrupted_diff_images = NeuralNetwork.corrupt(prev_images)
+    #         corrupted_images = NeuralNetwork.corrupt(images)
+    #         # Forward pass
+    #         normal_output = F.normalize(loaded_model(images), dim=1)
+
+    #         corrupted_output = F.normalize(loaded_model(corrupted_images), dim=1)
+    #         corrupted_diff_output = F.normalize(loaded_model(corrupted_diff_images), dim=1)
+                
+    #         # print(normal_output.size())
+    #         # print(corrupted_output.size())
+    #         dot_pairwise = torch.bmm(normal_output.unsqueeze(2), corrupted_output.unsqueeze(1)).to(device)
+    #         dot_diff_pairwise = torch.bmm(normal_output.unsqueeze(2), corrupted_diff_output.unsqueeze(1)).to(device)
+
+    #         dot_diff_avg_pairwise = dot_diff_pairwise.mean(dim=0).to(device)
+    #         dot_avg_pairwise = dot_pairwise.mean(dim=0).to(device)
+                
+    #         saved_dot_avg.append(dot_avg_pairwise.clone().detach().cpu().numpy())
+    #         saved_dot_avg.append(dot_diff_avg_pairwise.clone().detach().cpu().numpy())
+    #         prev_images = images
+    
