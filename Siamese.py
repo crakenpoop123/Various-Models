@@ -10,10 +10,11 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 input_size = 32 * 32
 batch_size = 1000
-embed_dim = 128
+embed_dim = 256
 num_epochs = 25
 learning_rate = 0.005
-gradient_accumulator = 2
+gradient_accumulator = 6
+img_compress_resolution = 64
 
 # CIFAR10 dataset
 
@@ -119,7 +120,7 @@ def train():
 
     same_img_pairwise_example = torch.zeros(embed_dim, embed_dim).to(device).fill_diagonal_(1)
     diff_img_pairwise_example = torch.zeros(embed_dim, embed_dim).to(device)
-    diff_img_same_label_pairwise_example = torch.zeros(embed_dim, embed_dim).to(device).fill_diagonal_(0.9)
+    diff_img_same_label_pairwise_example = torch.zeros(embed_dim, embed_dim).to(device).fill_diagonal_(0.95)
 
     for epoch in range(num_epochs):
         print("epoch: ", epoch + 1)
@@ -156,7 +157,7 @@ def train():
                 # print(dot_avg_pairwise)
 
                 # Loss
-                loss = criterion(dot_avg_pairwise, same_img_pairwise_example) * 10000
+                loss = criterion(dot_avg_pairwise, same_img_pairwise_example) * 1000
                 prev_images = images
                 prev_labels = labels
             else:
@@ -248,6 +249,11 @@ def corrupt(input_image):
     return images
 
 
+def img_compress(img):
+    while(img.size(1) >= img_compress_resolution):
+        img = F.max_pool2d(torch.from_numpy(img), kernel_size=2, stride=2)
+    return img.squeeze().numpy()
+
 if __name__ == '__main__':
     # Init the model
     model = NeuralNetwork().to(device)
@@ -273,13 +279,13 @@ if __name__ == '__main__':
     print(len(saved_dot_avg))
     for i in range(int(len(saved_dot_avg) / 2)):
         plt.subplot(5, 5, i + 1)
-        plt.imshow(F.max_pool2d(torch.from_numpy(saved_dot_avg[i * 2]).unsqueeze(0), kernel_size=2, stride=2).squeeze().numpy(), cmap="gray")
+        plt.imshow(img_compress(saved_dot_avg[i * 2 + 1].unsqueeze(0)), cmap="gray")
 
     plt.figure(2)
     plt.title("Set B (different image) (Max Pooled for clarity)")
     for i in range(int(len(saved_dot_avg) / 2)):
         plt.subplot(5, 5, i + 1)
-        plt.imshow(F.max_pool2d(torch.from_numpy(saved_dot_avg[i * 2 + 1]).unsqueeze(0), kernel_size=2, stride=2).squeeze().numpy(), cmap="gray")
+        plt.imshow(img_compress(saved_dot_avg[i * 2 + 1].unsqueeze(0)), cmap="gray")
 
 
     plt.figure(3)
@@ -295,7 +301,6 @@ if __name__ == '__main__':
     plt.title("Model's difference error(Comparing different images)")
 
     plt.show()
-
 
 
 

@@ -12,7 +12,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 input_size = 32 * 32
 batch_size = 1000
-num_epochs = 8
+num_epochs = 25
 num_classes = 10
 learning_rate = 0.01
 
@@ -59,6 +59,10 @@ loaded_model.eval()
 
 saved_dot_avg = []
 
+accuracy_arr = []
+MSE_arr = []
+step_arr = []
+
 
 # Freeze the model so that the only thing being chnaged are the learned classification layers
 
@@ -68,7 +72,7 @@ for param in loaded_model.parameters():
 
 # Variables used for the classifier model
 
-embed_dim = 128
+embed_dim = 256
 hidden_dim = 32
 hidden_depth = 2
 
@@ -107,7 +111,8 @@ class Classifier(nn.Module):
 
 def train():
     model.zero_grad()
-    n_total_steps = len(test_loader)
+    # n_total_steps = len(test_loader.dataset)
+    n_total_steps = 50
 
     for epoch in range(num_epochs):
         print("Epoch ", epoch)
@@ -135,8 +140,13 @@ def train():
 
                 accuracy = test()
                 
-                print(f"Step: {i}/{n_total_steps}. MSE: {loss:.4f}")
-                print(f"Step: {i}/{n_total_steps}. Accuracy: {accuracy * 100:.4f}")
+                print(f"Step: {i}/{n_total_steps}. MSE: {loss.item():.4f}")
+                print(f"Step: {i}/{n_total_steps}. Accuracy: {accuracy * 100:.2f}%")
+                MSE_arr.append(loss.item())
+                accuracy_arr.append(accuracy * 100)
+                step_arr.append(epoch * 50 + i)
+
+
                 
 
 def test():
@@ -144,7 +154,7 @@ def test():
         n_total = len(test_loader.dataset)
         n_correct = 0
 
-        for images, labels in test_loader:
+        for i, (images, labels) in enumerate(test_loader):
             images = images.to(device)
             labels = labels.to(device)
 
@@ -178,6 +188,21 @@ if __name__ == '__main__':
     n_total = len(test_loader.dataset)
 
     print(f"Model labeled {n_total} images with an accuracy of {accuracy * 100:.3f}%")
+
+    plt.figure(1)
+
+    plt.plot(step_arr, MSE_arr, color = "black", marker = "o", linestyle = "--")
+    plt.xlabel("Step")
+    plt.ylabel("MSE")
+    plt.title("MSE of the model")
+
+    plt.figure(2)
+    plt.plot(step_arr, accuracy_arr, color = "black", marker = "o", linestyle = "--")
+    plt.xlabel("Step")
+    plt.ylabel("Accurcy")
+    plt.title("Accuracy of the model")
+
+    plt.show()
 
     # for i, (images, labels) in enumerate(test_loader):
     #     if i != 0:
